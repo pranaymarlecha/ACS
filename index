@@ -1,4 +1,4 @@
-import React from 'react';
+import React from 'react';import React from 'react';
 
 // --- Helper Components for UI ---
 
@@ -61,7 +61,6 @@ const SelectField = ({ label, value, onChange, name, options }) => (
     </div>
 );
 
-
 // --- Main Application Component ---
 export default function App() {
   const [formData, setFormData] = React.useState({
@@ -88,6 +87,9 @@ export default function App() {
   });
 
   const [results, setResults] = React.useState(null);
+  const [isGenerating, setIsGenerating] = React.useState(false);
+  const [generatedContent, setGeneratedContent] = React.useState({ summary: '', differentials: '' });
+  const [copySuccess, setCopySuccess] = React.useState('');
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -104,9 +106,15 @@ export default function App() {
         ecgFindings: '', elevatedBiomarkers: false, creatinine: 1.0,
     });
     setResults(null);
+    setGeneratedContent({ summary: '', differentials: '' });
+    setCopySuccess('');
   };
 
   const calculateScoresAndDiagnosis = () => {
+    // Reset previous AI content
+    setGeneratedContent({ summary: '', differentials: '' });
+    setCopySuccess('');
+
     // --- 1. Diagnosis Logic ---
     let diagnosis = 'Undetermined';
     let recommendations = [];
@@ -203,7 +211,105 @@ export default function App() {
       grace: { score: graceScore, risk: graceRisk },
     });
   };
+
+  const callGeminiAPI = async (prompt) => {
+    setIsGenerating(true);
+    const apiKey = ""; // In a real app, use an environment variable
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+    };
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        throw new Error(`API call failed with status: ${response.status}`);
+      }
+      const result = await response.json();
+      const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        throw new Error("No text returned from API.");
+      }
+      return text;
+    } catch (error) {
+      console.error("Gemini API call error:", error);
+      return `Error: Could not generate content. ${error.message}`;
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleGenerateSummary = async () => {
+    const riskFactors = Object.entries({
+      "Diabetes": formData.diabetes,
+      "Smoking": formData.smoker,
+      "Hypertension": formData.hypertension,
+      "Dyslipidemia": formData.dyslipidemia,
+      "Family Hx of CAD": formData.familyHistory
+    }).filter(([, value]) => value).map(([key]) => key).join(', ') || 'none';
+
+    const prompt = `
+      You are a clinical assistant summarizing a patient case for an electronic health record. Be concise, professional, and use standard medical terminology.
+      Generate a brief summary paragraph for a patient presenting with suspected Acute Coronary Syndrome based on the following data:
+
+      - Patient: ${formData.age}-year-old ${formData.sex}
+      - Key Risk Factors: ${riskFactors}
+      - Vitals: BP ${formData.systolicBP} mmHg, HR ${formData.heartRate} bpm
+      - Key Exam Findings: Killip Class ${formData.killipClass}
+      - Pertinent History: Known CAD (${formData.knownCAD}), Aspirin use (${formData.aspirinUse}), Severe Angina in last 24h (${formData.severeAngina})
+      - ECG Findings: "${formData.ecgFindings || 'Not specified'}"
+      - Biomarkers: ${formData.elevatedBiomarkers ? 'Elevated' : 'Not elevated'}
+      - Assessment:
+        - Suggested Diagnosis: ${results.diagnosis}
+        - TIMI Score: ${results.timi.score} (${results.timi.risk} risk)
+        - GRACE Score: ${results.grace.score} (${results.grace.risk} in-hospital mortality risk)
+    `;
+    const summary = await callGeminiAPI(prompt);
+    setGeneratedContent(prev => ({ ...prev, summary }));
+  };
   
+  const handleGenerateDifferentials = async () => {
+     const prompt = `
+        You are a clinical decision support AI. Your role is to help clinicians consider alternative diagnoses for a patient with chest pain where ACS is unlikely.
+        
+        For a ${formData.age}-year-old ${formData.sex} with chest pain, but a low probability of Acute Coronary Syndrome based on initial workup, list the most likely differential diagnoses. 
+        For each, provide a brief one-sentence explanation of why it should be considered.
+        Organize the list into two categories: "Critical (Cannot Miss)" and "Common Causes".
+     `;
+     const differentials = await callGeminiAPI(prompt);
+     setGeneratedContent(prev => ({ ...prev, differentials }));
+  };
+  
+  const copyToClipboard = (text) => {
+    // navigator.clipboard.writeText is modern but can fail in secure contexts like iframes
+    navigator.clipboard.writeText(text).then(() => {
+        setCopySuccess('Copied!');
+        setTimeout(() => setCopySuccess(''), 2000);
+    }).catch(err => {
+        // Fallback to the older execCommand method
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed"; // Avoid scrolling to bottom
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            setCopySuccess('Copied!');
+            setTimeout(() => setCopySuccess(''), 2000);
+        } catch (err) {
+            setCopySuccess('Failed to copy');
+            setTimeout(() => setCopySuccess(''), 2000);
+        }
+        document.body.removeChild(textArea);
+    });
+  };
+
   const getResultColor = () => {
     if (!results) return 'border-gray-300';
     if (results.diagnosis.includes('STEMI') || results.grace.risk.includes('High') || results.timi.risk.includes('High')) return 'border-red-500';
@@ -216,7 +322,7 @@ export default function App() {
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
           <h1 className="text-3xl font-bold text-gray-900">ACS Diagnostic & Risk Assessment Tool</h1>
-          <p className="text-sm text-gray-500 mt-1">Based on ESC Guideline Pathways</p>
+          <p className="text-sm text-gray-500 mt-1">Based on ESC Guideline Pathways, with ✨ AI-Powered Summaries</p>
         </div>
       </header>
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
@@ -247,7 +353,7 @@ export default function App() {
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <InputField label="Systolic BP (mmHg)" name="systolicBP" value={formData.systolicBP} onChange={handleChange} />
                     <InputField label="Heart Rate (bpm)" name="heartRate" value={formData.heartRate} onChange={handleChange} />
-                    <InputField label="Serum Creatinine (mg/dL)" name="creatinine" type="number" value={formData.creatinine} onChange={handleChange} placeholder="e.g., 1.0" min="0.1" />
+                    <InputField label="Serum Creatinine (mg/dL)" name="creatinine" type="number" step="0.1" value={formData.creatinine} onChange={handleChange} placeholder="e.g., 1.0" min="0.1" />
                     <SelectField label="Killip Class" name="killipClass" value={formData.killipClass} onChange={handleChange} options={[
                         {value: 1, label: 'I - No heart failure'},
                         {value: 2, label: 'II - Rales, S3 gallop'},
@@ -289,7 +395,6 @@ export default function App() {
                     Reset
                  </button>
             </div>
-            
           </div>
 
           {/* --- Output Column --- */}
@@ -322,6 +427,37 @@ export default function App() {
                             {results.recommendations.map((rec, index) => <li key={index}>{rec}</li>)}
                          </ul>
                     </div>
+                    
+                    {/* Gemini Features */}
+                    <div className="border-t pt-4 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-semibold text-gray-800">✨ AI-Powered Tools</h3>
+                        </div>
+                        
+                        <button onClick={handleGenerateSummary} disabled={isGenerating} className="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 disabled:bg-blue-300 font-semibold flex items-center justify-center">
+                            {isGenerating && !generatedContent.summary ? 'Generating...' : 'Generate Clinical Summary'}
+                        </button>
+                        
+                        {generatedContent.summary && (
+                            <div className="bg-gray-100 p-3 rounded-md">
+                                <textarea readOnly value={generatedContent.summary} rows="6" className="w-full text-sm bg-gray-100 border-0 focus:ring-0 resize-none"></textarea>
+                                <button onClick={() => copyToClipboard(generatedContent.summary)} className="text-sm text-blue-600 hover:underline mt-1">{copySuccess || 'Copy to Clipboard'}</button>
+                            </div>
+                        )}
+                        
+                        {results.diagnosis.includes('Low Probability') && (
+                            <>
+                                <button onClick={handleGenerateDifferentials} disabled={isGenerating} className="w-full bg-teal-500 text-white py-2 px-4 rounded-md hover:bg-teal-600 disabled:bg-teal-300 font-semibold flex items-center justify-center">
+                                    {isGenerating && !generatedContent.differentials ? 'Generating...' : 'Suggest Differential Diagnoses'}
+                                </button>
+                                {generatedContent.differentials && (
+                                     <div className="bg-gray-100 p-3 rounded-md">
+                                        <textarea readOnly value={generatedContent.differentials} rows="8" className="w-full text-sm bg-gray-100 border-0 focus:ring-0 resize-none"></textarea>
+                                     </div>
+                                )}
+                            </>
+                        )}
+                    </div>
 
                  </div>
                ) : (
@@ -336,6 +472,17 @@ export default function App() {
             </Card>
             
             <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
+                <p className="font-bold">Disclaimer</p>
+                <p className="text-sm">This tool is for educational and clinical decision-support purposes only. It is not a substitute for professional medical judgment, diagnosis, or treatment. All clinical decisions must be made by a qualified healthcare professional.</p>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+
                 <p className="font-bold">Disclaimer</p>
                 <p className="text-sm">This tool is for educational and clinical decision-support purposes only. It is not a substitute for professional medical judgment, diagnosis, or treatment. All clinical decisions must be made by a qualified healthcare professional.</p>
             </div>
