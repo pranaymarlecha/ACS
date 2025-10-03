@@ -1,4 +1,7 @@
-import React from 'react';import React from 'react';
+// For this component to work correctly, make sure your project is set up with Tailwind CSS.
+// You can find installation instructions here: https://tailwindcss.com/docs/installation
+
+import React from 'react';
 
 // --- Helper Components for UI ---
 
@@ -12,7 +15,7 @@ const SectionTitle = ({ children }) => (
   <h2 className="text-xl font-bold text-gray-700 mb-4 border-b pb-2">{children}</h2>
 );
 
-const InputField = ({ label, type = 'number', value, onChange, name, placeholder = '', min = 0 }) => (
+const InputField = ({ label, type = 'number', value, onChange, name, placeholder = '', min = 0, step = 1 }) => (
   <div className="mb-4">
     <label htmlFor={name} className="block text-sm font-medium text-gray-600 mb-1">{label}</label>
     <input
@@ -23,6 +26,7 @@ const InputField = ({ label, type = 'number', value, onChange, name, placeholder
       onChange={onChange}
       placeholder={placeholder}
       min={min}
+      step={step}
       className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
     />
   </div>
@@ -90,6 +94,7 @@ export default function App() {
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [generatedContent, setGeneratedContent] = React.useState({ summary: '', differentials: '' });
   const [copySuccess, setCopySuccess] = React.useState('');
+  const [apiError, setApiError] = React.useState('');
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -108,12 +113,14 @@ export default function App() {
     setResults(null);
     setGeneratedContent({ summary: '', differentials: '' });
     setCopySuccess('');
+    setApiError('');
   };
 
   const calculateScoresAndDiagnosis = () => {
     // Reset previous AI content
     setGeneratedContent({ summary: '', differentials: '' });
     setCopySuccess('');
+    setApiError('');
 
     // --- 1. Diagnosis Logic ---
     let diagnosis = 'Undetermined';
@@ -214,7 +221,10 @@ export default function App() {
 
   const callGeminiAPI = async (prompt) => {
     setIsGenerating(true);
-    const apiKey = ""; // In a real app, use an environment variable
+    setApiError(''); // Clear previous errors
+    
+    // The API key is managed by the execution environment. Do not change this line.
+    const apiKey = ""; 
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
 
     const payload = {
@@ -238,7 +248,9 @@ export default function App() {
       return text;
     } catch (error) {
       console.error("Gemini API call error:", error);
-      return `Error: Could not generate content. ${error.message}`;
+      const errorMessage = `Error: Could not generate content. ${error.message}`;
+      setApiError(errorMessage);
+      return ``; // Return empty on error
     } finally {
       setIsGenerating(false);
     }
@@ -274,40 +286,35 @@ export default function App() {
   };
   
   const handleGenerateDifferentials = async () => {
-     const prompt = `
+      const prompt = `
         You are a clinical decision support AI. Your role is to help clinicians consider alternative diagnoses for a patient with chest pain where ACS is unlikely.
         
         For a ${formData.age}-year-old ${formData.sex} with chest pain, but a low probability of Acute Coronary Syndrome based on initial workup, list the most likely differential diagnoses. 
         For each, provide a brief one-sentence explanation of why it should be considered.
         Organize the list into two categories: "Critical (Cannot Miss)" and "Common Causes".
-     `;
-     const differentials = await callGeminiAPI(prompt);
-     setGeneratedContent(prev => ({ ...prev, differentials }));
+      `;
+      const differentials = await callGeminiAPI(prompt);
+      setGeneratedContent(prev => ({ ...prev, differentials }));
   };
   
   const copyToClipboard = (text) => {
     // navigator.clipboard.writeText is modern but can fail in secure contexts like iframes
-    navigator.clipboard.writeText(text).then(() => {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed"; // Avoid scrolling to bottom
+    textArea.style.opacity = "0";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+        document.execCommand('copy');
         setCopySuccess('Copied!');
         setTimeout(() => setCopySuccess(''), 2000);
-    }).catch(err => {
-        // Fallback to the older execCommand method
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed"; // Avoid scrolling to bottom
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        try {
-            document.execCommand('copy');
-            setCopySuccess('Copied!');
-            setTimeout(() => setCopySuccess(''), 2000);
-        } catch (err) {
-            setCopySuccess('Failed to copy');
-            setTimeout(() => setCopySuccess(''), 2000);
-        }
-        document.body.removeChild(textArea);
-    });
+    } catch (err) {
+        setCopySuccess('Failed to copy');
+        setTimeout(() => setCopySuccess(''), 2000);
+    }
+    document.body.removeChild(textArea);
   };
 
   const getResultColor = () => {
@@ -318,28 +325,28 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-800">
-      <header className="bg-white shadow-sm">
+    <div className="min-h-screen bg-gray-50 font-sans text-gray-800 p-4">
+      <header className="bg-white shadow-sm rounded-lg mb-6">
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
-          <h1 className="text-3xl font-bold text-gray-900">ACS Diagnostic & Risk Assessment Tool</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">ACS Diagnostic & Risk Assessment Tool</h1>
           <p className="text-sm text-gray-500 mt-1">Based on ESC Guideline Pathways, with ✨ AI-Powered Summaries</p>
         </div>
       </header>
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <main className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* --- Input Column --- */}
           <div className="space-y-6">
             <Card>
               <SectionTitle>Patient Data</SectionTitle>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <InputField label="Age" name="age" value={formData.age} onChange={handleChange} />
-                 <SelectField label="Sex" name="sex" value={formData.sex} onChange={handleChange} options={[{value: 'Male', label: 'Male'}, {value: 'Female', label: 'Female'}]} />
+                  <InputField label="Age" name="age" value={formData.age} onChange={handleChange} />
+                  <SelectField label="Sex" name="sex" value={formData.sex} onChange={handleChange} options={[{value: 'Male', label: 'Male'}, {value: 'Female', label: 'Female'}]} />
               </div>
             </Card>
             
             <Card>
                 <SectionTitle>Clinical Risk Factors</SectionTitle>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
                     <CheckboxField label="Diabetes Mellitus" name="diabetes" checked={formData.diabetes} onChange={handleChange} />
                     <CheckboxField label="Smoker (Current or recent)" name="smoker" checked={formData.smoker} onChange={handleChange} />
                     <CheckboxField label="Hypertension" name="hypertension" checked={formData.hypertension} onChange={handleChange} />
@@ -350,7 +357,7 @@ export default function App() {
 
             <Card>
               <SectionTitle>History & Examination</SectionTitle>
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <InputField label="Systolic BP (mmHg)" name="systolicBP" value={formData.systolicBP} onChange={handleChange} />
                     <InputField label="Heart Rate (bpm)" name="heartRate" value={formData.heartRate} onChange={handleChange} />
                     <InputField label="Serum Creatinine (mg/dL)" name="creatinine" type="number" step="0.1" value={formData.creatinine} onChange={handleChange} placeholder="e.g., 1.0" min="0.1" />
@@ -361,18 +368,18 @@ export default function App() {
                         {value: 4, label: 'IV - Cardiogenic shock'},
                     ]}/>
                 </div>
-                 <div className="mt-4 space-y-2">
-                     <CheckboxField label="Aspirin use in last 7 days" name="aspirinUse" checked={formData.aspirinUse} onChange={handleChange} />
-                     <CheckboxField label="≥2 anginal events in last 24h" name="severeAngina" checked={formData.severeAngina} onChange={handleChange} />
-                     <CheckboxField label="Known CAD (>50% stenosis)" name="knownCAD" checked={formData.knownCAD} onChange={handleChange} />
-                 </div>
+                <div className="mt-4 space-y-2">
+                    <CheckboxField label="Aspirin use in last 7 days" name="aspirinUse" checked={formData.aspirinUse} onChange={handleChange} />
+                    <CheckboxField label="≥2 anginal events in last 24h" name="severeAngina" checked={formData.severeAngina} onChange={handleChange} />
+                    <CheckboxField label="Known CAD (>50% stenosis)" name="knownCAD" checked={formData.knownCAD} onChange={handleChange} />
+                </div>
             </Card>
             
             <Card>
                 <SectionTitle>Investigations</SectionTitle>
                 <div>
-                     <label htmlFor="ecgFindings" className="block text-sm font-medium text-gray-600 mb-1">ECG Findings (Text)</label>
-                     <textarea
+                    <label htmlFor="ecgFindings" className="block text-sm font-medium text-gray-600 mb-1">ECG Findings (Text)</label>
+                    <textarea
                         id="ecgFindings"
                         name="ecgFindings"
                         rows="3"
@@ -382,93 +389,92 @@ export default function App() {
                         onChange={handleChange}
                     ></textarea>
                 </div>
-                 <div className="mt-4">
+                <div className="mt-4">
                     <CheckboxField label="Elevated Cardiac Biomarkers (Troponin)" name="elevatedBiomarkers" checked={formData.elevatedBiomarkers} onChange={handleChange} />
                 </div>
             </Card>
 
             <div className="flex space-x-4">
-                 <button onClick={calculateScoresAndDiagnosis} className="w-full bg-indigo-600 text-white py-3 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 font-semibold">
+                <button onClick={calculateScoresAndDiagnosis} className="w-full bg-indigo-600 text-white py-3 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 font-semibold transition-colors">
                     Analyze Patient Data
-                 </button>
-                 <button onClick={resetForm} className="w-full bg-gray-200 text-gray-700 py-3 px-4 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 font-semibold">
+                </button>
+                <button onClick={resetForm} className="w-full bg-gray-200 text-gray-700 py-3 px-4 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 font-semibold transition-colors">
                     Reset
-                 </button>
+                </button>
             </div>
           </div>
 
           {/* --- Output Column --- */}
           <div className="space-y-6">
             <Card className={`border-2 transition-all duration-300 ${getResultColor()}`}>
-               <SectionTitle>Assessment & Recommendations</SectionTitle>
-               {results ? (
-                 <div className="space-y-6">
-                    <div>
-                        <h3 className="text-lg font-semibold text-gray-800">Diagnosis Suggestion</h3>
-                        <p className={`text-2xl font-bold ${results.diagnosis.includes('STEMI') ? 'text-red-600' : 'text-indigo-600'}`}>{results.diagnosis}</p>
-                    </div>
+                <SectionTitle>Assessment & Recommendations</SectionTitle>
+                {results ? (
+                  <div className="space-y-6">
+                      <div>
+                          <h3 className="text-lg font-semibold text-gray-800">Diagnosis Suggestion</h3>
+                          <p className={`text-2xl font-bold ${results.diagnosis.includes('STEMI') ? 'text-red-600' : 'text-indigo-600'}`}>{results.diagnosis}</p>
+                      </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                             <h4 className="font-semibold text-gray-700">TIMI Score (NSTE-ACS)</h4>
-                             <p className="text-3xl font-bold text-gray-900">{results.timi.score}</p>
-                             <p className="text-sm font-medium text-gray-600">Risk: <span className="font-bold">{results.timi.risk}</span></p>
-                        </div>
-                         <div className="bg-gray-50 p-4 rounded-lg">
-                             <h4 className="font-semibold text-gray-700">GRACE Score</h4>
-                             <p className="text-3xl font-bold text-gray-900">{results.grace.score}</p>
-                             <p className="text-sm font-medium text-gray-600">In-hospital Mortality: <span className="font-bold">{results.grace.risk}</span></p>
-                        </div>
-                    </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="bg-gray-50 p-4 rounded-lg">
+                              <h4 className="font-semibold text-gray-700">TIMI Score (NSTE-ACS)</h4>
+                              <p className="text-3xl font-bold text-gray-900">{results.timi.score}</p>
+                              <p className="text-sm font-medium text-gray-600">Risk: <span className="font-bold">{results.timi.risk}</span></p>
+                          </div>
+                          <div className="bg-gray-50 p-4 rounded-lg">
+                              <h4 className="font-semibold text-gray-700">GRACE Score</h4>
+                              <p className="text-3xl font-bold text-gray-900">{results.grace.score}</p>
+                              <p className="text-sm font-medium text-gray-600">In-hospital Mortality: <span className="font-bold">{results.grace.risk}</span></p>
+                          </div>
+                      </div>
 
-                    <div>
-                         <h3 className="text-lg font-semibold text-gray-800">Recommended Next Steps</h3>
-                         <ul className="list-disc list-inside mt-2 space-y-1 text-gray-700">
-                            {results.recommendations.map((rec, index) => <li key={index}>{rec}</li>)}
-                         </ul>
-                    </div>
-                    
-                    {/* Gemini Features */}
-                    <div className="border-t pt-4 space-y-4">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-semibold text-gray-800">✨ AI-Powered Tools</h3>
-                        </div>
-                        
-                        <button onClick={handleGenerateSummary} disabled={isGenerating} className="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 disabled:bg-blue-300 font-semibold flex items-center justify-center">
-                            {isGenerating && !generatedContent.summary ? 'Generating...' : 'Generate Clinical Summary'}
-                        </button>
-                        
-                        {generatedContent.summary && (
-                            <div className="bg-gray-100 p-3 rounded-md">
-                                <textarea readOnly value={generatedContent.summary} rows="6" className="w-full text-sm bg-gray-100 border-0 focus:ring-0 resize-none"></textarea>
-                                <button onClick={() => copyToClipboard(generatedContent.summary)} className="text-sm text-blue-600 hover:underline mt-1">{copySuccess || 'Copy to Clipboard'}</button>
-                            </div>
-                        )}
-                        
-                        {results.diagnosis.includes('Low Probability') && (
-                            <>
-                                <button onClick={handleGenerateDifferentials} disabled={isGenerating} className="w-full bg-teal-500 text-white py-2 px-4 rounded-md hover:bg-teal-600 disabled:bg-teal-300 font-semibold flex items-center justify-center">
-                                    {isGenerating && !generatedContent.differentials ? 'Generating...' : 'Suggest Differential Diagnoses'}
-                                </button>
-                                {generatedContent.differentials && (
-                                     <div className="bg-gray-100 p-3 rounded-md">
-                                        <textarea readOnly value={generatedContent.differentials} rows="8" className="w-full text-sm bg-gray-100 border-0 focus:ring-0 resize-none"></textarea>
-                                     </div>
-                                )}
-                            </>
-                        )}
-                    </div>
+                      <div>
+                          <h3 className="text-lg font-semibold text-gray-800">Recommended Next Steps</h3>
+                          <ul className="list-disc list-inside mt-2 space-y-1 text-gray-700">
+                              {results.recommendations.map((rec, index) => <li key={index}>{rec}</li>)}
+                          </ul>
+                      </div>
+                      
+                      {/* Gemini Features */}
+                      <div className="border-t pt-4 space-y-4">
+                          <h3 className="text-lg font-semibold text-gray-800">✨ AI-Powered Tools</h3>
+                          
+                          <button onClick={handleGenerateSummary} disabled={isGenerating} className="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 disabled:bg-blue-300 font-semibold flex items-center justify-center transition-colors">
+                              {isGenerating && !generatedContent.summary ? 'Generating...' : 'Generate Clinical Summary'}
+                          </button>
+                          
+                          {generatedContent.summary && (
+                              <div className="bg-gray-100 p-3 rounded-md">
+                                  <div className="w-full text-sm bg-gray-100 whitespace-pre-wrap p-2 rounded">{generatedContent.summary}</div>
+                                  <button onClick={() => copyToClipboard(generatedContent.summary)} className="text-sm text-blue-600 hover:underline mt-1">{copySuccess || 'Copy to Clipboard'}</button>
+                              </div>
+                          )}
+                          
+                          {results.diagnosis.includes('Low Probability') && (
+                              <>
+                                  <button onClick={handleGenerateDifferentials} disabled={isGenerating} className="w-full bg-teal-500 text-white py-2 px-4 rounded-md hover:bg-teal-600 disabled:bg-teal-300 font-semibold flex items-center justify-center transition-colors">
+                                      {isGenerating && !generatedContent.differentials ? 'Generating...' : 'Suggest Differential Diagnoses'}
+                                  </button>
+                                  {generatedContent.differentials && (
+                                       <div className="bg-gray-100 p-3 rounded-md">
+                                           <div className="w-full text-sm bg-gray-100 whitespace-pre-wrap p-2 rounded">{generatedContent.differentials}</div>
+                                       </div>
+                                  )}
+                              </>
+                          )}
+                           {apiError && <p className="text-red-500 text-sm mt-2">{apiError}</p>}
+                      </div>
 
-                 </div>
-               ) : (
-                <div className="text-center py-10">
-                    <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                    </svg>
-                    <h3 className="mt-2 text-sm font-medium text-gray-900">Awaiting Analysis</h3>
-                    <p className="mt-1 text-sm text-gray-500">Enter patient data and click "Analyze" to see results.</p>
-                </div>
-               )}
+                  </div>
+                ) : (
+                  <div className="text-center py-10">
+                      <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                      </svg>
+                      <h3 className="mt-2 text-sm font-medium text-gray-900">Awaiting Analysis</h3>
+                      <p className="mt-1 text-sm text-gray-500">Enter patient data and click "Analyze" to see results.</p>
+                  </div>
+                )}
             </Card>
             
             <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
@@ -481,15 +487,3 @@ export default function App() {
     </div>
   );
 }
-
-
-                <p className="font-bold">Disclaimer</p>
-                <p className="text-sm">This tool is for educational and clinical decision-support purposes only. It is not a substitute for professional medical judgment, diagnosis, or treatment. All clinical decisions must be made by a qualified healthcare professional.</p>
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
-  );
-}
-
